@@ -145,21 +145,52 @@
                 alert("Tidak dapat memuat model machine learning.");
             }
         }
-
+        
+        // FUNGSI INI MENGANDUNG LOGIKA UNTUK MENAMPILKAN HURUF DI LAYAR
         function onResults(results) {
+            // Pengaturan dasar canvas
             canvasElement.width = videoElement.clientWidth;
             canvasElement.height = videoElement.clientHeight;
 
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.scale(-1, 1);
+            canvasCtx.scale(-1, 1); // Cerminkan canvas agar sesuai dengan video
             canvasCtx.translate(-canvasElement.width, 0);
 
+            // Proses jika tangan terdeteksi
             if (results.multiHandLandmarks && modelSession) {
                 for (const landmarks of results.multiHandLandmarks) {
+                    // Gambar landmark dan koneksi tangan (tetap sama)
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
                     drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
                     
+                    // 1. Dapatkan koordinat untuk membuat bounding box (kotak)
+                    const x = landmarks.map(lm => lm.x);
+                    const y = landmarks.map(lm => lm.y);
+                    const minX = Math.min(...x) * canvasElement.width - 20; // Diberi sedikit padding
+                    const minY = Math.min(...y) * canvasElement.height - 20;
+                    const maxX = Math.max(...x) * canvasElement.width + 20;
+                    const maxY = Math.max(...y) * canvasElement.height + 20;
+                    const width = maxX - minX;
+
+                    // 2. Gambar kotak di sekitar tangan
+                    canvasCtx.beginPath();
+                    canvasCtx.lineWidth = "4";
+                    canvasCtx.strokeStyle = "black";
+                    canvasCtx.rect(minX, minY, width, (maxY - minY));
+                    canvasCtx.stroke();
+
+                    // 3. Tulis hasil prediksi di atas kotak
+                    if (lastPredictedChar) {
+                        canvasCtx.font = "bold 50px Arial";
+                        canvasCtx.fillStyle = "black";
+                        canvasCtx.save();
+                        canvasCtx.scale(-1, 1); // Balik sementara sumbu x
+                        canvasCtx.fillText(lastPredictedChar, -(minX + width), minY - 10);
+                        canvasCtx.restore(); // Kembalikan sumbu x ke normal
+                    }
+                    
+                    // Jalankan prediksi (tetap sama)
                     const features = extractHandFeatures(landmarks);
                     if (features) {
                         runPrediction(features);
@@ -186,27 +217,22 @@
         }
 
         async function runPrediction(features) {
-            console.log("1. Extracted features:", features); // DEBUG
             try {
                 while (features.length < EXPECTED_FEATURE_LENGTH) {
                     features.push(0);
                 }
 
+                // PERBAIKAN UTAMA: Menggunakan 'float64' dan Float64Array
                 const inputTensor = new ort.Tensor('float64', Float64Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
-                console.log("2. Input tensor created:", inputTensor); // DEBUG
                 
-                // PENTING: Nama 'float_input' harus sama persis dengan nama input model ONNX Anda.
                 const feeds = { 'float_input': inputTensor }; 
                 
                 const results = await modelSession.run(feeds);
-                console.log("3. Model prediction result:", results); // DEBUG
 
                 const outputTensor = results[Object.keys(results)[0]];
                 const predictedClass = outputTensor.data[0];
-                console.log("4. Predicted class index:", predictedClass); // DEBUG
 
                 lastPredictedChar = labelsDict[predictedClass] || '?';
-                console.log("5. Final character:", lastPredictedChar); // DEBUG
 
             } catch (error) {
                 console.error("ERROR saat prediksi:", error);
@@ -248,7 +274,6 @@
         function stopCamera() {
             if (camera) {
                 camera.stop(); // Hentikan loop frame
-                // Matikan track video secara manual
                 const stream = videoElement.srcObject;
                 if (stream) {
                     const tracks = stream.getTracks();
@@ -281,7 +306,7 @@
                 outputText.scrollTop = outputText.scrollHeight;
                 lastPredictedChar = ''; // Reset setelah ditampilkan untuk menghindari duplikasi
             }
-        }, 1500); // Interval dipercepat sedikit
+        }, 1500);
 
         // --- Mulai Aplikasi ---
         function main() {
