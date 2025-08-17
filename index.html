@@ -1,89 +1,303 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SIGN Detection (JS)</title>
-  <style>
-    body { font-family: Arial, sans-serif; display: flex; gap: 20px; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; }
-    #camera-box { display: flex; flex-direction: column; align-items: center; }
-    video, canvas { border: 3px solid #000; border-radius: 8px; width: 480px; height: 360px; }
-    #output-box { display: flex; flex-direction: column; width: 300px; height: 400px; background: white; border: 2px solid #ccc; padding: 10px; }
-    textarea { flex: 1; resize: none; font-size: 18px; }
-    button { margin: 5px 0; padding: 8px; cursor: pointer; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Language Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+            gap: 20px;
+            background-color: #f0f2f5;
+            flex-wrap: wrap;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+            flex-wrap: wrap;
+        }
+        .camera-container, .output-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .camera-container {
+            flex: 1;
+            min-width: 320px;
+            position: relative;
+        }
+        .output-container {
+            flex: 1;
+            min-width: 300px;
+            display: flex;
+            flex-direction: column;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+            text-align: center;
+        }
+        #videoFeed {
+            width: 100%;
+            border-radius: 8px;
+            transform: scaleX(-1); /* Cerminkan video agar seperti cermin */
+        }
+        #canvasOverlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: calc(100% - 40px);
+            height: calc(100% - 40px);
+        }
+        #outputText {
+            width: 100%;
+            height: 250px;
+            font-size: 16px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+        }
+        .button-group button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            color: white;
+        }
+        #sendBtn { background-color: #007bff; }
+        #clearBtn { background-color: #6c757d; }
+        #disconnectBtn { background-color: #dc3545; }
+    </style>
 </head>
 <body>
-  <div id="camera-box">
-    <h2>Kamera</h2>
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="output_canvas"></canvas>
-  </div>
+    <div class="container">
+        <div class="camera-container">
+            <h1>Camera Feed</h1>
+            <video id="videoFeed" playsinline></video>
+            <canvas id="canvasOverlay"></canvas>
+        </div>
 
-  <div id="output-box">
-    <h3>OUTPUT :</h3>
-    <textarea id="output" readonly></textarea>
-    <button onclick="clearOutput()">Clear</button>
-    <button onclick="disconnect()">Disconnect</button>
-  </div>
+        <div class="output-container">
+            <h1>not first try 🥶</h1>
+            <label for="outputText"><b>OUTPUT :</b></label>
+            <textarea id="outputText"></textarea>
+            <div class="button-group">
+                <button id="sendBtn">Send</button>
+                <button id="clearBtn">Clear</button>
+                <button id="disconnectBtn">Disconnect</button>
+            </div>
+        </div>
+    </div>
 
-  <!-- Mediapipe -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script>
+        // --- Referensi Elemen HTML ---
+        const videoElement = document.getElementById('videoFeed');
+        const canvasElement = document.getElementById('canvasOverlay');
+        const canvasCtx = canvasElement.getContext('2d');
+        const outputText = document.getElementById('outputText');
+        const sendBtn = document.getElementById('sendBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
 
-  <script>
-    const videoElement = document.getElementById('video');
-    const canvasElement = document.getElementById('output_canvas');
-    const canvasCtx = canvasElement.getContext('2d');
-    const output = document.getElementById('output');
+        // --- Variabel Global ---
+        let modelSession;
+        let lastPredictedChar = '';
+        let cameraStream;
 
-    function clearOutput() {
-      output.value = "";
-    }
+        // Kamus label, sama seperti di Python
+        const labelsDict = {
+            0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G', 7: 'H', 8: 'I', 9: 'J',
+            10: 'K', 11: 'L', 12: 'M', 13: 'N', 14: 'O', 15: 'P', 16: 'Q', 17: 'R', 18: 'S',
+            19: 'T', 20: 'U', 21: 'V', 22: 'W', 23: 'X', 24: 'Y', 25: 'Z', 26: ' ', 27: 'enter'
+        };
+        const EXPECTED_FEATURE_LENGTH = 84;
 
-    function disconnect() {
-      output.value += "\n[Disconnected]";
-      let tracks = videoElement.srcObject.getTracks();
-      tracks.forEach(track => track.stop());
-    }
+        // --- Fungsi Utama ---
 
-    function onResults(results) {
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-      if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
-          drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
+        // Fungsi untuk memuat model ONNX
+        async function loadModel() {
+            try {
+                // Ganti 'model.onnx' dengan nama file Anda
+                modelSession = await ort.InferenceSession.create('./model.onnx');
+                console.log("Model ONNX berhasil dimuat.");
+            } catch (error) {
+                console.error("Gagal memuat model ONNX:", error);
+                alert("Tidak dapat memuat model machine learning. Pastikan file 'model.onnx' ada di repository.");
+            }
         }
-      }
-      canvasCtx.restore();
 
-      // TODO: di sini nanti masukkan kode prediksi model tf.js
-      output.value = "Tangan terdeteksi!";
-    }
+        // Fungsi yang dijalankan setiap kali MediaPipe mendeteksi tangan
+        function onResults(results) {
+            // Mengatur ukuran canvas agar sama dengan video
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
 
-    const hands = new Hands({locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-    }});
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-    hands.onResults(onResults);
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            // Cerminkan canvas agar gambar tangan sesuai dengan video
+            canvasCtx.scale(-1, 1);
+            canvasCtx.translate(-canvasElement.width, 0);
 
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await hands.send({image: videoElement});
-      },
-      width: 480,
-      height: 360
-    });
-    camera.start();
-  </script>
+            if (results.multiHandLandmarks && modelSession) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    // Gambar landmark tangan di canvas
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+                    
+                    // Ekstrak fitur (sama persis dengan logika Python)
+                    const features = extractHandFeatures(landmarks);
+
+                    if (features) {
+                        // Jalankan prediksi
+                        runPrediction(features);
+                    }
+                }
+            } else {
+                lastPredictedChar = ''; // Reset jika tidak ada tangan
+            }
+            canvasCtx.restore();
+        }
+
+        function extractHandFeatures(landmarks) {
+            let x_ = landmarks.map(lm => lm.x);
+            let y_ = landmarks.map(lm => lm.y);
+            let min_x = Math.min(...x_);
+            let min_y = Math.min(...y_);
+
+            let features = [];
+            for (const lm of landmarks) {
+                features.push(lm.x - min_x);
+                features.push(lm.y - min_y);
+            }
+            return features;
+        }
+
+        async function runPrediction(features) {
+            try {
+                // Pad data jika perlu, sama seperti di Python
+                while (features.length < EXPECTED_FEATURE_LENGTH) {
+                    features.push(0);
+                }
+
+                // Buat tensor input untuk model ONNX
+                const inputTensor = new ort.Tensor('float32', Float32Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
+                const feeds = { 'float_input': inputTensor }; // 'float_input' harus sama dengan nama input di model
+                
+                // Jalankan inferensi
+                const results = await modelSession.run(feeds);
+                
+                // Ambil hasil prediksi (biasanya output pertama)
+                const outputData = results[Object.keys(results)[0]].data;
+                const predictedClass = outputData[0];
+
+                lastPredictedChar = labelsDict[predictedClass] || '?';
+
+            } catch (error) {
+                console.error("Error saat menjalankan prediksi:", error);
+            }
+        }
+
+        // --- Inisialisasi MediaPipe Hands ---
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        // --- Logika untuk memulai kamera ---
+        async function startCamera() {
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+                videoElement.srcObject = cameraStream;
+                videoElement.onloadedmetadata = () => {
+                    videoElement.play();
+                    // Mulai mengirimkan frame video ke MediaPipe
+                    const camera = new Camera(videoElement, {
+                        onFrame: async () => {
+                            await hands.send({ image: videoElement });
+                        },
+                        width: 640,
+                        height: 480
+                    });
+                    camera.start();
+                };
+            } catch (error) {
+                console.error("Gagal mengakses kamera:", error);
+                alert("Tidak bisa mengakses kamera. Pastikan Anda memberikan izin.");
+            }
+        }
+
+        function stopCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                console.log("Kamera dimatikan.");
+            }
+        }
+
+        // --- Event Listeners untuk Tombol ---
+        sendBtn.addEventListener('click', () => {
+            if (lastPredictedChar === 'enter') {
+                outputText.value += '\n';
+            } else if (lastPredictedChar) {
+                outputText.value += lastPredictedChar;
+            }
+            outputText.scrollTop = outputText.scrollHeight; // Auto-scroll
+        });
+
+        clearBtn.addEventListener('click', () => {
+            outputText.value = '';
+        });
+
+        disconnectBtn.addEventListener('click', () => {
+            stopCamera();
+            alert("Koneksi kamera diputus.");
+        });
+
+        // --- Auto Send ---
+        // Meniru fitur auto-send dari kode Python Anda (setiap 3 detik)
+        setInterval(() => {
+            if (lastPredictedChar === 'enter') {
+                outputText.value += '\n';
+            } else if (lastPredictedChar) {
+                outputText.value += lastPredictedChar;
+            }
+             outputText.scrollTop = outputText.scrollHeight; // Auto-scroll
+        }, 3000); // Kirim setiap 3000 ms = 3 detik
+
+
+        // --- Mulai Aplikasi ---
+        async function main() {
+            await loadModel();
+            await startCamera();
+        }
+
+        main();
+
+    </script>
 </body>
 </html>
