@@ -53,13 +53,13 @@
             width: 100%;
             border-radius: 8px;
             transform: scaleX(-1); /* Cerminkan video agar seperti cermin */
+            background-color: #eee;
         }
         #canvasOverlay {
             position: absolute;
-            top: 20px;
+            top: 60px; /* Disesuaikan dengan posisi video */
             left: 20px;
-            width: calc(100% - 40px);
-            height: calc(100% - 40px);
+            pointer-events: none; /* Agar bisa klik video di belakangnya */
         }
         #outputText {
             width: 100%;
@@ -79,8 +79,13 @@
             border: none;
             border-radius: 5px;
             color: white;
+            transition: background-color 0.2s;
         }
-        #sendBtn { background-color: #007bff; }
+        .button-group button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #startBtn { background-color: #007bff; }
         #clearBtn { background-color: #6c757d; }
         #disconnectBtn { background-color: #dc3545; }
     </style>
@@ -98,9 +103,9 @@
             <label for="outputText"><b>OUTPUT :</b></label>
             <textarea id="outputText"></textarea>
             <div class="button-group">
-                <button id="sendBtn">Send</button>
-                <button id="clearBtn">Clear</button>
-                <button id="disconnectBtn">Disconnect</button>
+                <button id="startBtn">Buka Kamera</button>
+                <button id="clearBtn" disabled>Clear</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
             </div>
         </div>
     </div>
@@ -111,16 +116,15 @@
         const canvasElement = document.getElementById('canvasOverlay');
         const canvasCtx = canvasElement.getContext('2d');
         const outputText = document.getElementById('outputText');
-        const sendBtn = document.getElementById('sendBtn');
+        const startBtn = document.getElementById('startBtn');
         const clearBtn = document.getElementById('clearBtn');
         const disconnectBtn = document.getElementById('disconnectBtn');
 
         // --- Variabel Global ---
         let modelSession;
         let lastPredictedChar = '';
-        let cameraStream;
+        let camera; // Variabel untuk Camera Utils MediaPipe
 
-        // Kamus label, sama seperti di Python
         const labelsDict = {
             0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G', 7: 'H', 8: 'I', 9: 'J',
             10: 'K', 11: 'L', 12: 'M', 13: 'N', 14: 'O', 15: 'P', 16: 'Q', 17: 'R', 18: 'S',
@@ -130,46 +134,39 @@
 
         // --- Fungsi Utama ---
 
-        // Fungsi untuk memuat model ONNX
         async function loadModel() {
             try {
-                // Ganti 'model.onnx' dengan nama file Anda
                 modelSession = await ort.InferenceSession.create('./model.onnx');
                 console.log("Model ONNX berhasil dimuat.");
+                startBtn.disabled = false;
+                startBtn.textContent = "Buka Kamera";
             } catch (error) {
                 console.error("Gagal memuat model ONNX:", error);
-                alert("Tidak dapat memuat model machine learning. Pastikan file 'model.onnx' ada di repository.");
+                alert("Tidak dapat memuat model machine learning.");
             }
         }
 
-        // Fungsi yang dijalankan setiap kali MediaPipe mendeteksi tangan
         function onResults(results) {
-            // Mengatur ukuran canvas agar sama dengan video
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
+            canvasElement.width = videoElement.clientWidth;
+            canvasElement.height = videoElement.clientHeight;
 
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            // Cerminkan canvas agar gambar tangan sesuai dengan video
             canvasCtx.scale(-1, 1);
             canvasCtx.translate(-canvasElement.width, 0);
 
             if (results.multiHandLandmarks && modelSession) {
                 for (const landmarks of results.multiHandLandmarks) {
-                    // Gambar landmark tangan di canvas
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
                     drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
                     
-                    // Ekstrak fitur (sama persis dengan logika Python)
                     const features = extractHandFeatures(landmarks);
-
                     if (features) {
-                        // Jalankan prediksi
                         runPrediction(features);
                     }
                 }
             } else {
-                lastPredictedChar = ''; // Reset jika tidak ada tangan
+                lastPredictedChar = '';
             }
             canvasCtx.restore();
         }
@@ -189,27 +186,31 @@
         }
 
         async function runPrediction(features) {
+            console.log("1. Extracted features:", features); // DEBUG
             try {
-                // Pad data jika perlu, sama seperti di Python
                 while (features.length < EXPECTED_FEATURE_LENGTH) {
                     features.push(0);
                 }
 
-                // Buat tensor input untuk model ONNX
                 const inputTensor = new ort.Tensor('float32', Float32Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
-                const feeds = { 'float_input': inputTensor }; // 'float_input' harus sama dengan nama input di model
+                console.log("2. Input tensor created:", inputTensor); // DEBUG
                 
-                // Jalankan inferensi
+                // PENTING: Nama 'float_input' harus sama persis dengan nama input model ONNX Anda.
+                const feeds = { 'float_input': inputTensor }; 
+                
                 const results = await modelSession.run(feeds);
-                
-                // Ambil hasil prediksi (biasanya output pertama)
-                const outputData = results[Object.keys(results)[0]].data;
-                const predictedClass = outputData[0];
+                console.log("3. Model prediction result:", results); // DEBUG
+
+                const outputTensor = results[Object.keys(results)[0]];
+                const predictedClass = outputTensor.data[0];
+                console.log("4. Predicted class index:", predictedClass); // DEBUG
 
                 lastPredictedChar = labelsDict[predictedClass] || '?';
+                console.log("5. Final character:", lastPredictedChar); // DEBUG
 
             } catch (error) {
-                console.error("Error saat menjalankan prediksi:", error);
+                console.error("ERROR saat prediksi:", error);
+                lastPredictedChar = ''; // Reset jika ada error
             }
         }
 
@@ -225,75 +226,68 @@
         });
         hands.onResults(onResults);
 
-        // --- Logika untuk memulai kamera ---
-        async function startCamera() {
-            try {
-                cameraStream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 640, height: 480 }
-                });
-                videoElement.srcObject = cameraStream;
-                videoElement.onloadedmetadata = () => {
-                    videoElement.play();
-                    // Mulai mengirimkan frame video ke MediaPipe
-                    const camera = new Camera(videoElement, {
-                        onFrame: async () => {
-                            await hands.send({ image: videoElement });
-                        },
-                        width: 640,
-                        height: 480
-                    });
-                    camera.start();
-                };
-            } catch (error) {
-                console.error("Gagal mengakses kamera:", error);
-                alert("Tidak bisa mengakses kamera. Pastikan Anda memberikan izin.");
-            }
+        // --- Logika Kamera ---
+        function startCamera() {
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    if(videoElement.readyState === 4){
+                        await hands.send({ image: videoElement });
+                    }
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+            
+            // Atur status tombol
+            startBtn.disabled = true;
+            clearBtn.disabled = false;
+            disconnectBtn.disabled = false;
         }
 
         function stopCamera() {
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
-                videoElement.srcObject = null;
-                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                console.log("Kamera dimatikan.");
+            if (camera) {
+                camera.stop(); // Hentikan loop frame
+                // Matikan track video secara manual
+                const stream = videoElement.srcObject;
+                if (stream) {
+                    const tracks = stream.getTracks();
+                    tracks.forEach(track => track.stop());
+                    videoElement.srcObject = null;
+                }
             }
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height); // Bersihkan canvas
+            console.log("Kamera dimatikan.");
+
+            // Atur status tombol
+            startBtn.disabled = false;
+            clearBtn.disabled = true;
+            disconnectBtn.disabled = true;
         }
-
+        
         // --- Event Listeners untuk Tombol ---
-        sendBtn.addEventListener('click', () => {
-            if (lastPredictedChar === 'enter') {
-                outputText.value += '\n';
-            } else if (lastPredictedChar) {
-                outputText.value += lastPredictedChar;
-            }
-            outputText.scrollTop = outputText.scrollHeight; // Auto-scroll
-        });
-
-        clearBtn.addEventListener('click', () => {
-            outputText.value = '';
-        });
-
-        disconnectBtn.addEventListener('click', () => {
-            stopCamera();
-            alert("Koneksi kamera diputus.");
-        });
-
-        // --- Auto Send ---
-        // Meniru fitur auto-send dari kode Python Anda (setiap 3 detik)
+        startBtn.addEventListener('click', startCamera);
+        clearBtn.addEventListener('click', () => outputText.value = '');
+        disconnectBtn.addEventListener('click', stopCamera);
+        
+        // --- Auto Append ---
         setInterval(() => {
-            if (lastPredictedChar === 'enter') {
-                outputText.value += '\n';
-            } else if (lastPredictedChar) {
-                outputText.value += lastPredictedChar;
+            if (lastPredictedChar && document.hasFocus()) { // Hanya append jika ada karakter dan tab aktif
+                if (lastPredictedChar === 'enter') {
+                    outputText.value += '\n';
+                } else {
+                    outputText.value += lastPredictedChar;
+                }
+                outputText.scrollTop = outputText.scrollHeight;
+                lastPredictedChar = ''; // Reset setelah ditampilkan untuk menghindari duplikasi
             }
-             outputText.scrollTop = outputText.scrollHeight; // Auto-scroll
-        }, 3000); // Kirim setiap 3000 ms = 3 detik
-
+        }, 1500); // Interval dipercepat sedikit
 
         // --- Mulai Aplikasi ---
-        async function main() {
-            await loadModel();
-            await startCamera();
+        function main() {
+            startBtn.disabled = true;
+            startBtn.textContent = "Loading Model...";
+            loadModel();
         }
 
         main();
