@@ -2,72 +2,88 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <title>Sign Recognition Web</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIGN Detection (JS)</title>
   <style>
-    body { display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; font-family: sans-serif; }
-    #container { display: flex; gap: 20px; }
-    video { border: 3px solid black; border-radius: 8px; width: 480px; height: 360px; background: black; }
-    #outputBox { display: flex; flex-direction: column; }
-    textarea { width: 300px; height: 300px; font-size: 18px; padding: 10px; }
-    button { margin: 5px; padding: 10px; }
+    body { font-family: Arial, sans-serif; display: flex; gap: 20px; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; }
+    #camera-box { display: flex; flex-direction: column; align-items: center; }
+    video, canvas { border: 3px solid #000; border-radius: 8px; width: 480px; height: 360px; }
+    #output-box { display: flex; flex-direction: column; width: 300px; height: 400px; background: white; border: 2px solid #ccc; padding: 10px; }
+    textarea { flex: 1; resize: none; font-size: 18px; }
+    button { margin: 5px 0; padding: 8px; cursor: pointer; }
   </style>
 </head>
 <body>
-  <div id="container">
-    <!-- Kamera -->
-    <video id="kameraFeed" autoplay playsinline muted></video>
-
-    <!-- Output -->
-    <div id="outputBox">
-      <label><b>OUTPUT :</b></label>
-      <textarea id="outputText" readonly></textarea>
-      <div>
-        <button onclick="clearText()">clear</button>
-        <button onclick="disconnect()">disconnect</button>
-      </div>
-    </div>
+  <div id="camera-box">
+    <h2>Kamera</h2>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="output_canvas"></canvas>
   </div>
 
+  <div id="output-box">
+    <h3>OUTPUT :</h3>
+    <textarea id="output" readonly></textarea>
+    <button onclick="clearOutput()">Clear</button>
+    <button onclick="disconnect()">Disconnect</button>
+  </div>
+
+  <!-- Mediapipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
   <script>
-    const video = document.getElementById("kameraFeed");
-    const outputText = document.getElementById("outputText");
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const output = document.getElementById('output');
 
-    // Buka kamera
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => video.srcObject = stream)
-      .catch(err => alert("Kamera gagal: " + err));
-
-    // Kirim frame ke backend
-    async function captureAndSend() {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d").drawImage(video, 0, 0);
-
-      canvas.toBlob(async (blob) => {
-        const formData = new FormData();
-        formData.append("frame", blob, "frame.jpg");
-
-        const res = await fetch("https://raja-alghifary-sign-backend.hf.space/predict", {
-          method: "POST",
-          body: formData
-        });
-
-        const data = await res.json();
-        if (data.prediction) {
-          outputText.value += data.prediction;
-        }
-      }, "image/jpeg");
+    function clearOutput() {
+      output.value = "";
     }
 
-    // Jalankan setiap 2 detik
-    setInterval(captureAndSend, 2000);
-
-    function clearText() { outputText.value = ""; }
     function disconnect() {
-      video.srcObject.getTracks().forEach(track => track.stop());
-      alert("Disconnected");
+      output.value += "\n[Disconnected]";
+      let tracks = videoElement.srcObject.getTracks();
+      tracks.forEach(track => track.stop());
     }
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks) {
+        for (const landmarks of results.multiHandLandmarks) {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+          drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 1});
+        }
+      }
+      canvasCtx.restore();
+
+      // TODO: di sini nanti masukkan kode prediksi model tf.js
+      output.value = "Tangan terdeteksi!";
+    }
+
+    const hands = new Hands({locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }});
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    hands.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({image: videoElement});
+      },
+      width: 480,
+      height: 360
+    });
+    camera.start();
   </script>
 </body>
 </html>
