@@ -192,7 +192,7 @@
                     features.push(0);
                 }
 
-                const inputTensor = new ort.Tensor('float32', Float32Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
+                const inputTensor = new ort.Tensor('float64', Float64Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
                 console.log("2. Input tensor created:", inputTensor); // DEBUG
                 
                 // PENTING: Nama 'float_input' harus sama persis dengan nama input model ONNX Anda.
