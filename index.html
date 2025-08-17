@@ -123,7 +123,7 @@
         // --- Variabel Global ---
         let modelSession;
         let lastPredictedChar = '';
-        let camera; // Variabel untuk Camera Utils MediaPipe
+        let camera;
 
         const labelsDict = {
             0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G', 7: 'H', 8: 'I', 9: 'J',
@@ -136,8 +136,16 @@
 
         async function loadModel() {
             try {
-                modelSession = await ort.InferenceSession.create('./model.onnx', {executionProviders: ['wasm']});
-                console.log("Model ONNX berhasil dimuat.");
+                // ==================================================================
+                // PERBAIKAN FINAL ADA DI SINI: Memaksa model berjalan di CPU
+                // ==================================================================
+                modelSession = await ort.InferenceSession.create('./model.onnx', {
+                    executionProviders: ['wasm'] 
+                });
+                
+                // Log untuk memastikan provider sudah benar
+                console.log("Model ONNX berhasil dimuat dengan provider:", modelSession.options.executionProviders);
+                
                 startBtn.disabled = false;
                 startBtn.textContent = "Buka Kamera";
             } catch (error) {
@@ -145,52 +153,44 @@
                 alert("Tidak dapat memuat model machine learning.");
             }
         }
-        
-        // FUNGSI INI MENGANDUNG LOGIKA UNTUK MENAMPILKAN HURUF DI LAYAR
+
         function onResults(results) {
-            // Pengaturan dasar canvas
             canvasElement.width = videoElement.clientWidth;
             canvasElement.height = videoElement.clientHeight;
 
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.scale(-1, 1); // Cerminkan canvas agar sesuai dengan video
+            canvasCtx.scale(-1, 1);
             canvasCtx.translate(-canvasElement.width, 0);
 
-            // Proses jika tangan terdeteksi
             if (results.multiHandLandmarks && modelSession) {
                 for (const landmarks of results.multiHandLandmarks) {
-                    // Gambar landmark dan koneksi tangan (tetap sama)
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 5 });
                     drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
                     
-                    // 1. Dapatkan koordinat untuk membuat bounding box (kotak)
                     const x = landmarks.map(lm => lm.x);
                     const y = landmarks.map(lm => lm.y);
-                    const minX = Math.min(...x) * canvasElement.width - 20; // Diberi sedikit padding
+                    const minX = Math.min(...x) * canvasElement.width - 20;
                     const minY = Math.min(...y) * canvasElement.height - 20;
                     const maxX = Math.max(...x) * canvasElement.width + 20;
                     const maxY = Math.max(...y) * canvasElement.height + 20;
                     const width = maxX - minX;
 
-                    // 2. Gambar kotak di sekitar tangan
                     canvasCtx.beginPath();
                     canvasCtx.lineWidth = "4";
                     canvasCtx.strokeStyle = "black";
                     canvasCtx.rect(minX, minY, width, (maxY - minY));
                     canvasCtx.stroke();
 
-                    // 3. Tulis hasil prediksi di atas kotak
                     if (lastPredictedChar) {
                         canvasCtx.font = "bold 50px Arial";
                         canvasCtx.fillStyle = "black";
                         canvasCtx.save();
-                        canvasCtx.scale(-1, 1); // Balik sementara sumbu x
+                        canvasCtx.scale(-1, 1);
                         canvasCtx.fillText(lastPredictedChar, -(minX + width), minY - 10);
-                        canvasCtx.restore(); // Kembalikan sumbu x ke normal
+                        canvasCtx.restore();
                     }
                     
-                    // Jalankan prediksi (tetap sama)
                     const features = extractHandFeatures(landmarks);
                     if (features) {
                         runPrediction(features);
@@ -227,7 +227,6 @@
                 const feeds = { 'float_input': inputTensor }; 
                 
                 const results = await modelSession.run(feeds);
-
                 const outputTensor = results[Object.keys(results)[0]];
                 const predictedClass = outputTensor.data[0];
 
@@ -235,7 +234,7 @@
 
             } catch (error) {
                 console.error("ERROR saat prediksi:", error);
-                lastPredictedChar = ''; // Reset jika ada error
+                lastPredictedChar = '';
             }
         }
 
@@ -264,7 +263,6 @@
             });
             camera.start();
             
-            // Atur status tombol
             startBtn.disabled = true;
             clearBtn.disabled = false;
             disconnectBtn.disabled = false;
@@ -272,7 +270,7 @@
 
         function stopCamera() {
             if (camera) {
-                camera.stop(); // Hentikan loop frame
+                camera.stop();
                 const stream = videoElement.srcObject;
                 if (stream) {
                     const tracks = stream.getTracks();
@@ -280,10 +278,8 @@
                     videoElement.srcObject = null;
                 }
             }
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height); // Bersihkan canvas
-            console.log("Kamera dimatikan.");
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-            // Atur status tombol
             startBtn.disabled = false;
             clearBtn.disabled = true;
             disconnectBtn.disabled = true;
@@ -296,14 +292,14 @@
         
         // --- Auto Append ---
         setInterval(() => {
-            if (lastPredictedChar && document.hasFocus()) { // Hanya append jika ada karakter dan tab aktif
+            if (lastPredictedChar && document.hasFocus()) {
                 if (lastPredictedChar === 'enter') {
                     outputText.value += '\n';
                 } else {
                     outputText.value += lastPredictedChar;
                 }
                 outputText.scrollTop = outputText.scrollHeight;
-                lastPredictedChar = ''; // Reset setelah ditampilkan untuk menghindari duplikasi
+                lastPredictedChar = '';
             }
         }, 1500);
 
