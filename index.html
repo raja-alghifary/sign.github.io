@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign Recognition Web</title>
+  <style>
+    body { display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; font-family: sans-serif; }
+    #container { display: flex; gap: 20px; }
+    video { border: 3px solid black; border-radius: 8px; width: 480px; height: 360px; background: black; }
+    #outputBox { display: flex; flex-direction: column; }
+    textarea { width: 300px; height: 300px; font-size: 18px; padding: 10px; }
+    button { margin: 5px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <!-- Kamera -->
+    <video id="kameraFeed" autoplay playsinline muted></video>
+
+    <!-- Output -->
+    <div id="outputBox">
+      <label><b>OUTPUT :</b></label>
+      <textarea id="outputText" readonly></textarea>
+      <div>
+        <button onclick="clearText()">clear</button>
+        <button onclick="disconnect()">disconnect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById("kameraFeed");
+    const outputText = document.getElementById("outputText");
+
+    // Buka kamera
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => video.srcObject = stream)
+      .catch(err => alert("Kamera gagal: " + err));
+
+    // Kirim frame ke backend
+    async function captureAndSend() {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+
+      canvas.toBlob(async (blob) => {
+        const formData = new FormData();
+        formData.append("frame", blob, "frame.jpg");
+
+        const res = await fetch("https://NAMA-BACKEND-ANDA.hf.space/predict", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+        if (data.prediction) {
+          outputText.value += data.prediction;
+        }
+      }, "image/jpeg");
+    }
+
+    // Jalankan setiap 2 detik
+    setInterval(captureAndSend, 2000);
+
+    function clearText() { outputText.value = ""; }
+    function disconnect() {
+      video.srcObject.getTracks().forEach(track => track.stop());
+      alert("Disconnected");
+    }
+  </script>
+</body>
+</html>
