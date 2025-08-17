@@ -135,16 +135,14 @@
         // --- Fungsi Utama ---
 
         async function loadModel() {
+        
             try {
-                // ==================================================================
-                // PERBAIKAN FINAL ADA DI SINI: Memaksa model berjalan di CPU
-                // ==================================================================
+                // PERBAIKAN: Baris console.log yang error sudah dihapus.
                 modelSession = await ort.InferenceSession.create('./model.onnx', {
-                    executionProviders: ['wasm'] 
+                    executionProviders: ['wasm']
                 });
                 
-                // Log untuk memastikan provider sudah benar
-                console.log("Model ONNX berhasil dimuat dengan provider:", modelSession.options.executionProviders);
+                console.log("Model ONNX berhasil dimuat."); // Log yang lebih sederhana dan aman
                 
                 startBtn.disabled = false;
                 startBtn.textContent = "Buka Kamera";
