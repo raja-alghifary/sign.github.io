@@ -52,14 +52,14 @@
         #videoFeed {
             width: 100%;
             border-radius: 8px;
-            transform: scaleX(-1); /* Cerminkan video agar seperti cermin */
+            transform: scaleX(-1);
             background-color: #eee;
         }
         #canvasOverlay {
             position: absolute;
-            top: 60px; /* Disesuaikan dengan posisi video */
+            top: 60px;
             left: 20px;
-            pointer-events: none; /* Agar bisa klik video di belakangnya */
+            pointer-events: none;
         }
         #outputText {
             width: 100%;
@@ -97,7 +97,6 @@
             <video id="videoFeed" playsinline></video>
             <canvas id="canvasOverlay"></canvas>
         </div>
-
         <div class="output-container">
             <h1>not first try 🥶</h1>
             <label for="outputText"><b>OUTPUT :</b></label>
@@ -111,7 +110,6 @@
     </div>
 
     <script>
-        // --- Referensi Elemen HTML ---
         const videoElement = document.getElementById('videoFeed');
         const canvasElement = document.getElementById('canvasOverlay');
         const canvasCtx = canvasElement.getContext('2d');
@@ -120,7 +118,6 @@
         const clearBtn = document.getElementById('clearBtn');
         const disconnectBtn = document.getElementById('disconnectBtn');
 
-        // --- Variabel Global ---
         let modelSession;
         let lastPredictedChar = '';
         let camera;
@@ -132,18 +129,12 @@
         };
         const EXPECTED_FEATURE_LENGTH = 84;
 
-        // --- Fungsi Utama ---
-
         async function loadModel() {
-        
             try {
-                // PERBAIKAN: Baris console.log yang error sudah dihapus.
                 modelSession = await ort.InferenceSession.create('./model.onnx', {
                     executionProviders: ['wasm']
                 });
-                
-                console.log("Model ONNX berhasil dimuat."); // Log yang lebih sederhana dan aman
-                
+                console.log("Model ONNX berhasil dimuat.");
                 startBtn.disabled = false;
                 startBtn.textContent = "Buka Kamera";
             } catch (error) {
@@ -205,7 +196,6 @@
             let y_ = landmarks.map(lm => lm.y);
             let min_x = Math.min(...x_);
             let min_y = Math.min(...y_);
-
             let features = [];
             for (const lm of landmarks) {
                 features.push(lm.x - min_x);
@@ -219,36 +209,31 @@
                 while (features.length < EXPECTED_FEATURE_LENGTH) {
                     features.push(0);
                 }
-
                 const inputTensor = new ort.Tensor('float32', Float32Array.from(features), [1, EXPECTED_FEATURE_LENGTH]);
-                
-                const feeds = { 'float_input': inputTensor }; 
-                
+                const feeds = { 'float_input': inputTensor };
                 const results = await modelSession.run(feeds);
+                
+                // ==================================================================
+                // PERBAIKAN FINAL ADA DI SINI: Mengambil data dengan cara yang benar
+                // ==================================================================
                 const outputTensor = results[Object.keys(results)[0]];
-                const predictedClass = outputTensor.data[0];
+                const outputData = await outputTensor.getData(); // Menggunakan .getData() yang async
+                const predictedClass = outputData[0];
+                // ==================================================================
 
                 lastPredictedChar = labelsDict[predictedClass] || '?';
-
             } catch (error) {
                 console.error("ERROR saat prediksi:", error);
                 lastPredictedChar = '';
             }
         }
 
-        // --- Inisialisasi MediaPipe Hands ---
         const hands = new Hands({
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
         hands.onResults(onResults);
 
-        // --- Logika Kamera ---
         function startCamera() {
             camera = new Camera(videoElement, {
                 onFrame: async () => {
@@ -260,7 +245,6 @@
                 height: 480
             });
             camera.start();
-            
             startBtn.disabled = true;
             clearBtn.disabled = false;
             disconnectBtn.disabled = false;
@@ -271,24 +255,20 @@
                 camera.stop();
                 const stream = videoElement.srcObject;
                 if (stream) {
-                    const tracks = stream.getTracks();
-                    tracks.forEach(track => track.stop());
+                    stream.getTracks().forEach(track => track.stop());
                     videoElement.srcObject = null;
                 }
             }
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
             startBtn.disabled = false;
             clearBtn.disabled = true;
             disconnectBtn.disabled = true;
         }
         
-        // --- Event Listeners untuk Tombol ---
         startBtn.addEventListener('click', startCamera);
         clearBtn.addEventListener('click', () => outputText.value = '');
         disconnectBtn.addEventListener('click', stopCamera);
         
-        // --- Auto Append ---
         setInterval(() => {
             if (lastPredictedChar && document.hasFocus()) {
                 if (lastPredictedChar === 'enter') {
@@ -301,15 +281,12 @@
             }
         }, 1500);
 
-        // --- Mulai Aplikasi ---
         function main() {
             startBtn.disabled = true;
             startBtn.textContent = "Loading Model...";
             loadModel();
         }
-
         main();
-
     </script>
 </body>
 </html>
