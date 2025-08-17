@@ -136,7 +136,7 @@
 
         async function loadModel() {
             try {
-                modelSession = await ort.InferenceSession.create('./model.onnx');
+                modelSession = await ort.InferenceSession.create('./model.onnx', {executionProviders: ['wasm']});
                 console.log("Model ONNX berhasil dimuat.");
                 startBtn.disabled = false;
                 startBtn.textContent = "Buka Kamera";
